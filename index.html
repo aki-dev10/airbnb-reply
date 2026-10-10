@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="返信アシスト">
+<meta name="theme-color" content="#f7f7f7">
+<title>返信アシスト</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: calc(16px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); font: 16px/1.5 -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif; color: #222; background: #f7f7f7; max-width: 640px; margin-inline: auto; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  label { display: block; margin: 12px 0 4px; font-size: 13px; font-weight: 600; color: #555; }
+  textarea, select, input { width: 100%; padding: 10px; border: 1px solid #b0b0b0; border-radius: 10px; font: inherit; background: #fff; color: #222; }
+  textarea { min-height: 110px; resize: vertical; }
+  #out { min-height: 200px; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; min-width: 0; }
+  button { width: 100%; height: 48px; margin-top: 14px; border: 0; border-radius: 10px; background: #222; color: #fff; font: inherit; font-weight: 600; }
+  button.sub { background: #fff; color: #222; border: 1px solid #222; }
+  button.small { height: 40px; margin-top: 6px; }
+  button:disabled { opacity: .5; }
+  #status { min-height: 22px; margin-top: 8px; font-size: 14px; color: #717171; }
+  #status.error { color: #c13515; }
+  #status.note { color: #8a5a00; }
+  #status.ok { color: #008a05; }
+  details { margin-top: 20px; font-size: 14px; color: #555; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1b1b1b; color: #eee; }
+    label, details { color: #aaa; }
+    textarea, select, input { background: #2a2a2a; color: #eee; border-color: #555; }
+    button { background: #eee; color: #111; }
+    button.sub { background: #2a2a2a; color: #eee; border-color: #888; }
+    #status.ok { color: #5fd068; } #status.error { color: #ff8a70; } #status.note { color: #e0b050; }
+  }
+</style>
+</head>
+<body>
+  <h1>返信アシスト</h1>
+
+  <label for="src">ゲストのメッセージ</label>
+  <textarea id="src" placeholder="コピーした文面を貼り付け"></textarea>
+  <button class="sub small" id="paste" type="button">クリップボードから貼り付け</button>
+
+  <div class="row">
+    <div>
+      <label for="pattern">パターン</label>
+      <select id="pattern">
+        <option value="auto">自動判定</option>
+        <option value="checkin">チェックイン連絡</option>
+        <option value="bbq">BBQ 申込み</option>
+        <option value="early">アーリーチェックイン</option>
+        <option value="late">レイトチェックアウト</option>
+        <option value="checkout">チェックアウト連絡</option>
+      </select>
+    </div>
+    <div>
+      <label for="decision">方針</label>
+      <select id="decision">
+        <option value="">指定なし</option>
+        <option value="accept">承諾</option>
+        <option value="decline">お断り</option>
+      </select>
+    </div>
+  </div>
+
+  <label for="instr">指示（任意）</label>
+  <input id="instr" type="text" placeholder="例: 15時までならOK／次の予約があるので断る">
+
+  <button id="go" type="button">文章生成</button>
+  <div id="status"></div>
+
+  <label for="out">返信の下書き</label>
+  <textarea id="out"></textarea>
+  <button class="sub" id="copy" type="button">コピー</button>
+
+  <details id="set">
+    <summary>設定</summary>
+    <label for="url">接続先 URL</label>
+    <input id="url" type="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec">
+    <label for="token">合言葉</label>
+    <input id="token" type="password" autocomplete="off">
+    <label for="lang">返信の言語</label>
+    <select id="lang">
+      <option value="ja">日本語</option>
+      <option value="guest">ゲストの言語に合わせる</option>
+    </select>
+  </details>
+
+<script>
+  var $ = function (id) { return document.getElementById(id); };
+  var store = {
+    get: function (k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+  var say = function (msg, kind) { $('status').textContent = msg || ''; $('status').className = kind || ''; };
+
+  // 初回設定用: URL の # 以降に u=<接続先> を付けて開くと保存する（# 以降はサーバーに送られない）
+  var hash = new URLSearchParams(location.hash.slice(1));
+  if (hash.get('u')) store.set('arh_url', hash.get('u'));
+
+  $('url').value = store.get('arh_url');
+  $('token').value = store.get('arh_token');
+  $('lang').value = store.get('arh_lang') || 'ja';
+  if (!$('url').value || !$('token').value) $('set').open = true;
+  $('url').addEventListener('change', function () { store.set('arh_url', $('url').value.trim()); });
+  $('token').addEventListener('change', function () { store.set('arh_token', $('token').value.trim()); });
+  $('lang').addEventListener('change', function () { store.set('arh_lang', $('lang').value); });
+
+  $('paste').addEventListener('click', function () {
+    if (!navigator.clipboard || !navigator.clipboard.readText) return say('自動で貼り付けできません。長押しでペーストしてください', 'note');
+    navigator.clipboard.readText().then(function (t) { $('src').value = t; say(''); }, function () {
+      say('貼り付けが許可されませんでした。長押しでペーストしてください', 'note');
+    });
+  });
+
+  $('go').addEventListener('click', function () {
+    var url = $('url').value.trim();
+    var token = $('token').value.trim();
+    var text = $('src').value.trim();
+    if (!url || !token) { $('set').open = true; return say('設定に接続先 URL と合言葉を入力してください', 'error'); }
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)) { $('set').open = true; return say('接続先 URL の形式が違います', 'error'); }
+    if (!text) return say('ゲストのメッセージを貼り付けてください', 'error');
+    store.set('arh_url', url);
+    store.set('arh_token', token);
+    $('go').disabled = true;
+    say('生成中…');
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        token: token,
+        pattern: $('pattern').value,
+        decision: $('decision').value,
+        instruction: $('instr').value.trim(),
+        language: $('lang').value,
+        reservation: '',
+        messages: [{ role: 'guest', name: '', time: '', text: text.slice(0, 4000) }]
+      })
+    }).then(function (r) { return r.json(); }).then(function (r) {
+      if (!r.ok) return say(r.error || '生成に失敗しました', 'error');
+      $('out').value = r.reply;
+      say(r.note ? '確認: ' + r.note : '下書きができました', r.note ? 'note' : 'ok');
+    }).catch(function (e) {
+      say('通信に失敗しました: ' + (e && e.message || e), 'error');
+    }).then(function () { $('go').disabled = false; });
+  });
+
+  $('copy').addEventListener('click', function () {
+    var text = $('out').value;
+    if (!text) return;
+    var done = function () { say('コピーしました。Airbnb アプリに貼り付けてください', 'ok'); };
+    var fallback = function () {
+      $('out').focus();
+      $('out').setSelectionRange(0, text.length);
+      if (document.execCommand('copy')) done(); else say('コピーできませんでした。下書きを長押しして選択してください', 'error');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+    else fallback();
+  });
+</script>
+</body>
+</html>
