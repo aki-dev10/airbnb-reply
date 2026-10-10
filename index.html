@@ -74,6 +74,7 @@
 
   <label for="out">返信の下書き</label>
   <textarea id="out"></textarea>
+  <button class="sub" id="fix" type="button">指示を足してこの下書きを修正</button>
   <button class="sub" id="copy" type="button">コピー</button>
 
   <details id="set">
@@ -116,17 +117,19 @@
     });
   });
 
-  $('go').addEventListener('click', function () {
+  var generate = function (useDraft) {
     var url = $('url').value.trim();
     var token = $('token').value.trim();
     var text = $('src').value.trim();
     if (!url || !token) { $('set').open = true; return say('設定に接続先 URL と合言葉を入力してください', 'error'); }
     if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)) { $('set').open = true; return say('接続先 URL の形式が違います', 'error'); }
     if (!text) return say('ゲストのメッセージを貼り付けてください', 'error');
+    var draft = useDraft ? $('out').value.trim() : '';
+    if (useDraft && !draft) return say('先に下書きを作ってください', 'error');
     store.set('arh_url', url);
     store.set('arh_token', token);
-    $('go').disabled = true;
-    say('生成中…');
+    $('go').disabled = $('fix').disabled = true;
+    say(useDraft ? '修正中…' : '生成中…');
     fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -137,6 +140,7 @@
         instruction: $('instr').value.trim(),
         language: $('lang').value,
         reservation: '',
+        draft: draft,
         messages: [{ role: 'guest', name: '', time: '', text: text.slice(0, 4000) }]
       })
     }).then(function (r) { return r.json(); }).then(function (r) {
@@ -145,8 +149,10 @@
       say(r.note ? '確認: ' + r.note : '下書きができました', r.note ? 'note' : 'ok');
     }).catch(function (e) {
       say('通信に失敗しました: ' + (e && e.message || e), 'error');
-    }).then(function () { $('go').disabled = false; });
-  });
+    }).then(function () { $('go').disabled = $('fix').disabled = false; });
+  };
+  $('go').addEventListener('click', function () { generate(false); });
+  $('fix').addEventListener('click', function () { generate(true); });
 
   $('copy').addEventListener('click', function () {
     var text = $('out').value;
