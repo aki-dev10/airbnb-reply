@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="返信アシスト">
 <meta name="theme-color" content="#f7f7f7">
+<link rel="apple-touch-icon" href="icon.png">
 <title>返信アシスト</title>
 <style>
   * { box-sizing: border-box; }
@@ -40,15 +41,20 @@
 <body>
   <h1>返信アシスト</h1>
 
-  <label for="src">ゲストのメッセージ</label>
-  <textarea id="src" placeholder="コピーした文面を貼り付け"></textarea>
-  <button class="sub small" id="paste" type="button">クリップボードから貼り付け</button>
+  <label for="src">ゲストのメッセージ（前後のやり取りを続けて貼ってもOK）</label>
+  <textarea id="src" placeholder="コピーした文面を貼り付け。複数のメッセージは「追加で貼り付け」で足せます"></textarea>
+  <div class="row">
+    <button class="sub small" id="paste" type="button">貼り付け</button>
+    <button class="sub small" id="append" type="button">追加で貼り付け</button>
+    <button class="sub small" id="clear" type="button">消去</button>
+  </div>
 
   <div class="row">
     <div>
       <label for="pattern">パターン</label>
       <select id="pattern">
         <option value="auto">自動判定</option>
+        <option value="thanks">予約後のお礼</option>
         <option value="checkin">チェックイン連絡</option>
         <option value="bbq">BBQ 申込み</option>
         <option value="early">アーリーチェックイン</option>
@@ -117,6 +123,19 @@
     });
   });
 
+  // 2通目以降は、区切り線を入れて後ろに足す
+  $('append').addEventListener('click', function () {
+    if (!navigator.clipboard || !navigator.clipboard.readText) return say('自動で貼り付けできません。長押しでペーストしてください', 'note');
+    navigator.clipboard.readText().then(function (t) {
+      var cur = $('src').value.trim();
+      $('src').value = cur ? cur + '\n\n---\n\n' + t : t;
+      say('');
+    }, function () {
+      say('貼り付けが許可されませんでした。長押しでペーストしてください', 'note');
+    });
+  });
+  $('clear').addEventListener('click', function () { $('src').value = ''; $('out').value = ''; say(''); });
+
   var generate = function (useDraft) {
     var url = $('url').value.trim();
     var token = $('token').value.trim();
@@ -141,7 +160,7 @@
         language: $('lang').value,
         reservation: '',
         draft: draft,
-        messages: [{ role: 'guest', name: '', time: '', text: text.slice(0, 4000) }]
+        messages: [{ role: 'thread', name: '', time: '', text: text.slice(0, 6000) }]
       })
     }).then(function (r) { return r.json(); }).then(function (r) {
       if (!r.ok) return say(r.error || '生成に失敗しました', 'error');
